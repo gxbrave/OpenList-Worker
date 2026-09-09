@@ -295,22 +295,28 @@ adminRouter.post("/storage/create", async (c) => {
     id: db.storages.length
       ? Math.max(...db.storages.map((s: any) => s.id)) + 1
       : 1,
-    status: "work",
+    status: body.disabled ? "disabled" : "initializing",
     modified: new Date().toISOString(),
   }
 
+  // Persist before contacting the remote storage. ESA may terminate slow driver
+  // initialization requests; saving first prevents a timeout from losing the
+  // newly-created storage completely.
+  db.storages.push(newStorage)
+  await saveDb(db, c.env)
+
   if (!newStorage.disabled) {
     try {
-      const driver = await getDriver(newStorage.driver, newStorage)
-      await driver.init?.()
+      // getDriver() already initializes drivers inside createDriver(). Calling
+      // init() again here doubled remote login traffic and frequently exceeded
+      // ESA request limits/timeouts.
+      await getDriver(newStorage.driver, newStorage)
       newStorage.status = "work"
     } catch (e: any) {
       newStorage.status = e.message || String(e)
-      // If driver is completely unsupported, disable storage to avoid crashing path resolution
       if (String(e.message || e).includes("unsupported driver")) {
         newStorage.disabled = true
       }
-      db.storages.push(newStorage)
       await saveDb(db, c.env)
       return c.json({
         code: 500,
@@ -318,10 +324,9 @@ adminRouter.post("/storage/create", async (c) => {
         data: newStorage,
       })
     }
+    await saveDb(db, c.env)
   }
 
-  db.storages.push(newStorage)
-  await saveDb(db, c.env)
   return c.json({ code: 200, message: "success", data: newStorage })
 })
 

@@ -42,17 +42,15 @@ export const fsRouter = new Hono()
 fsRouter.route("/seed", seedRouter)
 
 const getStorageRequestContext = (c: any) => {
+  const requestContext: any = { env: c.env }
   try {
     const executionCtx = c.executionCtx
-    if (!executionCtx || typeof executionCtx.waitUntil !== "function") {
-      return undefined
+    if (executionCtx && typeof executionCtx.waitUntil === "function") {
+      requestContext.waitUntil = (promise: Promise<unknown>) =>
+        executionCtx.waitUntil(promise)
     }
-    return {
-      waitUntil: (promise: Promise<unknown>) => executionCtx.waitUntil(promise),
-    }
-  } catch {
-    return undefined
-  }
+  } catch {}
+  return requestContext
 }
 
 // ---- 写操作权限校验 ----

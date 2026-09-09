@@ -1231,8 +1231,8 @@ export const saveDb = async (data: any, envCtx?: any): Promise<boolean> => {
   return true
 }
 
-export async function resolvePath(virtualPath: string) {
-  const db = await getDb()
+export async function resolvePath(virtualPath: string, envCtx?: any) {
+  const db = await getDb(envCtx)
 
   // ============ 路径遍历防护增强 (2026-09-08) ============
   // 1. URL 解码（防止 %2e%2e 等编码绕过）
