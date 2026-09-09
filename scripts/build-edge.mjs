@@ -52,30 +52,37 @@ const NODE_BUILTINS = [
 ]
 
 /**
- * ESA 运行时不支持 node: 模块协议。MoPan 驱动静态依赖 Node crypto，
- * 因此仅在 ESA 构建中替换为空壳，避免整个函数在模块加载阶段失败。
+ * ESA 不支持 Node 内置模块。将构建中残留的 Node builtin 解析到一个
+ * 延迟抛错的本地空壳，避免函数在模块发现阶段因 node:/裸模块导入失败。
  */
-const esaUnsupportedDriverPlugin = {
-  name: "esa-unsupported-driver",
+const esaNodeBuiltinShimPlugin = {
+  name: "esa-node-builtin-shim",
   setup(build) {
-    build.onResolve({ filter: /drivers[\\/]mopan([\\/].*)?$/ }, (args) => ({
-      path: args.path,
-      namespace: "esa-unsupported-driver",
-    }))
-    build.onLoad({ filter: /.*/, namespace: "esa-unsupported-driver" }, () => ({
-      contents: `
-export const MoPanDriver = class {
-  constructor() {
-    throw new Error("[Alibaba ESA] MoPan driver requires Node.js crypto and is unavailable in the ESA edge runtime");
-  }
+    const builtinPattern = new RegExp(
+      `^(?:node:)?(?:${NODE_BUILTINS.join("|")})(?:/.*)?$`,
+    )
+
+    build.onResolve({ filter: /.*/ }, (args) => {
+      if (builtinPattern.test(args.path)) {
+        return { path: args.path, namespace: "esa-node-builtin-shim" }
+      }
+    })
+
+    build.onLoad(
+      { filter: /.*/, namespace: "esa-node-builtin-shim" },
+      (args) => ({
+        contents: `
+const fail = () => {
+  throw new Error("[Alibaba ESA] Node built-in module '${args.path}' is unavailable in the edge runtime");
 };
-export default {};
+const unavailable = new Proxy(fail, { get: () => unavailable, apply: fail });
+module.exports = new Proxy({}, { get: () => unavailable });
 `,
-      loader: "js",
-    }))
+        loader: "js",
+      }),
+    )
   },
 }
-
 /**
  * 边缘与 Serverless 构建专用插件：把 sftp / ftp 驱动及 ssh2 相关依赖替换为空模块。
  *
@@ -185,7 +192,7 @@ async function build() {
     await esbuild.build({
       entryPoints: ["esa-entry.ts"],
       bundle: true,
-      platform: "neutral",
+      platform: "browser",
       outfile: "dist/esa-entry.js",
       minify: true,
       format: "esm",
@@ -196,11 +203,10 @@ async function build() {
         "cpu-features",
         "iconv-lite",
         "mysql2",
-        "node:*",
       ],
       loader: { ".html": "text", ".node": "empty" },
       plugins: [
-        esaUnsupportedDriverPlugin,
+        esaNodeBuiltinShimPlugin,
         emptyNodeDriverPlugin,
         normalizeHtmlEolPlugin,
       ],
