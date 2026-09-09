@@ -52,6 +52,21 @@ const NODE_BUILTINS = [
 ]
 
 /**
+ * ESA 会对 dist/esa-entry.js 再打包一次。将裸 Node 内置模块名
+ * （如 "crypto" / "module"）改写为 ESA 可保留的 "node:" 形式。
+ */
+const nodeBuiltinPrefixPlugin = {
+  name: "node-builtin-prefix",
+  setup(build) {
+    build.onResolve({ filter: /.*/ }, (args) => {
+      if (NODE_BUILTINS.includes(args.path)) {
+        return { path: `node:${args.path}`, external: true }
+      }
+    })
+  },
+}
+
+/**
  * 边缘与 Serverless 构建专用插件：把 sftp / ftp 驱动及 ssh2 相关依赖替换为空模块。
  *
  * 原因：sftp 驱动依赖 ssh2（需 crypto/net/http/https/tls 等 Node 内置模块以及 cpufeatures.node / sshcrypto.node 原生二进制），
@@ -166,15 +181,18 @@ async function build() {
       format: "esm",
       mainFields: ["module", "main"],
       external: [
-      "ssh2",
-      "cpu-features",
-      "iconv-lite",
-      "mysql2",
-      "node:*",
-      ...NODE_BUILTINS,
-    ],
+        "ssh2",
+        "cpu-features",
+        "iconv-lite",
+        "mysql2",
+        "node:*",
+      ],
       loader: { ".html": "text", ".node": "empty" },
-      plugins: [emptyNodeDriverPlugin, normalizeHtmlEolPlugin],
+      plugins: [
+        nodeBuiltinPrefixPlugin,
+        emptyNodeDriverPlugin,
+        normalizeHtmlEolPlugin,
+      ],
     })
   }
 
