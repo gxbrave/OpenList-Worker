@@ -52,17 +52,27 @@ const NODE_BUILTINS = [
 ]
 
 /**
- * ESA 会对 dist/esa-entry.js 再打包一次。将裸 Node 内置模块名
- * （如 "crypto" / "module"）改写为 ESA 可保留的 "node:" 形式。
+ * ESA 运行时不支持 node: 模块协议。MoPan 驱动静态依赖 Node crypto，
+ * 因此仅在 ESA 构建中替换为空壳，避免整个函数在模块加载阶段失败。
  */
-const nodeBuiltinPrefixPlugin = {
-  name: "node-builtin-prefix",
+const esaUnsupportedDriverPlugin = {
+  name: "esa-unsupported-driver",
   setup(build) {
-    build.onResolve({ filter: /.*/ }, (args) => {
-      if (NODE_BUILTINS.includes(args.path)) {
-        return { path: `node:${args.path}`, external: true }
-      }
-    })
+    build.onResolve({ filter: /drivers[\\/]mopan([\\/].*)?$/ }, (args) => ({
+      path: args.path,
+      namespace: "esa-unsupported-driver",
+    }))
+    build.onLoad({ filter: /.*/, namespace: "esa-unsupported-driver" }, () => ({
+      contents: `
+export const MoPanDriver = class {
+  constructor() {
+    throw new Error("[Alibaba ESA] MoPan driver requires Node.js crypto and is unavailable in the ESA edge runtime");
+  }
+};
+export default {};
+`,
+      loader: "js",
+    }))
   },
 }
 
@@ -179,7 +189,8 @@ async function build() {
       outfile: "dist/esa-entry.js",
       minify: true,
       format: "esm",
-      mainFields: ["module", "main"],
+      mainFields: ["browser", "module", "main"],
+      conditions: ["browser"],
       external: [
         "ssh2",
         "cpu-features",
@@ -189,7 +200,7 @@ async function build() {
       ],
       loader: { ".html": "text", ".node": "empty" },
       plugins: [
-        nodeBuiltinPrefixPlugin,
+        esaUnsupportedDriverPlugin,
         emptyNodeDriverPlugin,
         normalizeHtmlEolPlugin,
       ],
